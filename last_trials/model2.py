@@ -1,53 +1,50 @@
-"""Ayto deixnei na trexei opws to thelw alla akoma thelei meleti gia na mai sigourh me ta prosima"""
+"""den paei oppow thelw"""
+import matplotlib.pyplot as plt
 from scipy.special import expit
 import arviz as az
 import jax
-import matplotlib.pyplot as plt
 import numpy
 import numpyro.distributions as dist
 import pandas as pd
-from jax import numpy as np, random
+from jax import numpy as np
 import numpyro
-from numpyro import sample
 from numpyro.distributions import (Normal)
 from numpyro.infer import MCMC, NUTS
 from numpyro import sample, handlers
-from jax.scipy.special import logsumexp
 from itertools import combinations
-# import jax.numpy as jnp
-from jax import random, vmap
+from scipy.stats import norm
 import math
 
 assert numpyro.__version__.startswith("0.11.0")
 az.style.use("arviz-darkgrid")
-sample_size = 3000
-rng_key = jax.random.PRNGKey(0)
-
+sample_size = 1200
+rng_key = jax.random.PRNGKey(93)
 
 def Generate_Observational_Data(sample_size):
 
     alpha = [-4, 4]
-    beta = [0.9, 0.7, 1.4, 1.7]  # [Z1, Z2, X, Z2]
+    beta = [0.9, 1.7, 1.4, 1.3, 0.7]  # [Z1, Z2, X, Z2]
 
     e = dist.Normal(0, 1).sample(rng_key, sample_shape=(sample_size,))
     Z1 = dist.Normal(0, 10).sample(rng_key, sample_shape=(sample_size,))
     Z2 = dist.Normal(0, 15).sample(rng_key, sample_shape=(sample_size,))
 
 
-    μ_true = beta[0] * Z1 + beta[1] * Z2 + e
+    μ_true = beta[0] * Z1 + beta[4] * Z2
     p_true = expit(μ_true)
-    X = dist.Bernoulli(p_true).sample(rng_key)
+    X = dist.Bernoulli(p_true).sample(jax.random.PRNGKey(0))
     """EDW wxw enstasi ean prepei na einai +bx or -bx"""
-    logit_0 = alpha[0] + (beta[2] * X + beta[3]*Z2)
-    logit_1 = alpha[1] + (beta[2] * X + beta[3]*Z2)
+    logit_0 = alpha[0] + (beta[1] * Z1 + beta[2] * X + beta[3] * Z2 + e)
+    logit_1 = alpha[1] + (beta[1] * Z1 + beta[2] * X + beta[3] * Z2 + e)
     q_0 = expit(logit_0)
     q_1 = expit(logit_1)
     prob_0 = q_0
     prob_1 = q_1 - q_0
     prob_2 = 1 - q_1
+
     probs = np.stack((prob_0, prob_1, prob_2), axis=1)
 
-    Y = dist.Categorical(probs=probs).sample(rng_key, sample_shape=(1,))[0]
+    Y = dist.Categorical(probs=probs).sample(jax.random.PRNGKey(1), sample_shape=(1,))[0]
     data = pd.DataFrame({"Y": Y, 'X': X, "Z1": Z1, "Z2": Z2})
 
     return data, Y, X, Z1, Z2
@@ -55,6 +52,8 @@ def Generate_Observational_Data(sample_size):
 """!!!  Oti dataframe kai na diavazoume tha vazoume stin prwti stili
 to outcome(Y) kai sthn 2h to treatment(X) !!!"""
 data, Y, X, Z1, Z2 = Generate_Observational_Data(sample_size)
+data["Y"].value_counts().plot.barh()
+plt.show()
 
 """Take all possible combinations for regression """
 #Pairnei to dataset kai ftiaxnei olous tous pithanous syndiasmous pou periexoun to X
@@ -71,15 +70,14 @@ print('The combinations of regression models for Y are {}'.format(list_comb))
 
 num_warmup, num_samples = 1000, sample_size
 
-data, Y, X, Z1, Z2 = Generate_Observational_Data(sample_size)
-data["Y"].value_counts().plot.barh()
-plt.show()
+
 def Regression_cases(Y, X, Z1, Z2, reg_variables):
 
     vars_dict = {'Y': Y, 'X': X, 'Z1': Z1, 'Z2': Z2}
-    beta = []
+    beta = {}
     for i in range(len(reg_variables)):
-        beta.append(sample('beta_{}'.format(reg_variables[i]), Normal(0, 100)))
+        #Exigei sto video pou kanei analisi sta prior oti epd mpainei sto logit to (0, 100) exei telika prokatalipsi
+        beta['{}'.format(reg_variables[i])] = (sample('beta_{}'.format(reg_variables[i]), Normal(0, 1)))
 
     cutpoints = numpyro.sample(
         "cutpoints",
@@ -90,7 +88,8 @@ def Regression_cases(Y, X, Z1, Z2, reg_variables):
     )
     prediction = 0
     for i in range(len(reg_variables)):
-        prediction = prediction + beta[i] * vars_dict['{}'.format(reg_variables[i])]
+
+        prediction = prediction + beta['{}'.format(reg_variables[i])] * vars_dict['{}'.format(reg_variables[i])]
 
     numpyro.sample(
         "Y",
@@ -118,13 +117,22 @@ for i in range(len(list_comb)):
     trace = mcmc.get_samples()
 
     Log_Likelihood = log_likelihood(rng_key, trace, Regression_cases, Y, X, Z1, Z2, reg_variables)
-    print("Log Likelihood for {}:".format(reg_variables), Log_Likelihood)
+
+    fb_trace = norm(0, 1).logpdf(numpy.array(trace['cutpoints'][:, 0])) +\
+               norm(0, 1).logpdf(numpy.array(trace['cutpoints'][:, 1]))
+    for i in range(len(reg_variables)):
+
+        fb_trace = fb_trace + norm(0, 1).logpdf(numpy.array(trace['beta_{}'.format(reg_variables[i])]))
+
+    f_prior = sum(fb_trace)
+    prior = f_prior / (num_samples)
+    print("Log Likelihood for {}:".format(reg_variables), Log_Likelihood+prior)
 
 def model1(X,Z1,Z2,Y,nclasses=3):
 
-    b_X_eta = sample("b_X_eta", Normal(0, 100))
-    b_Z1_eta = sample("b_Z1_eta", Normal(0, 100))
-    b_Z2_eta = sample("b_Z2_eta", Normal(0, 100))
+    b_X_eta = sample("b_X_eta", Normal(0, 1))
+    b_Z1_eta = sample("b_Z1_eta", Normal(0, 1))
+    b_Z2_eta = sample("b_Z2_eta", Normal(0, 1))
 
 
     cutpoints = numpyro.sample(
@@ -145,7 +153,7 @@ def model1(X,Z1,Z2,Y,nclasses=3):
 sampler = NUTS(model1)
 mcmc = MCMC(sampler, num_samples=sample_size, num_warmup=1000)
 mcmc.run(
-    jax.random.PRNGKey(0),
+    jax.random.PRNGKey(93),
     X=data["X"].to_numpy(),
     Z1=data["Z1"].to_numpy(),
     Z2=data["Z2"].to_numpy(),
@@ -158,7 +166,9 @@ trace1 = mcmc.get_samples()
 def Calculate_Marginal_Likelehood_by_Hand(X,Z1,Z2,Y,trace):
     a_0 = trace['cutpoints'][:, 0]
     a_1 = trace['cutpoints'][:, 1]
-    """Ki edw ta allaxa ola se + SOS"""
+    """Ki edw ta allaxa ola se - SOS giati  prepei a pas kai na diavaseis to documentation to mathimatiko apo th stata 
+    gia na deis ti paizei, dld to P(Y<j)= ao+bx autoi to kanoun parametrize kai paizoun orizontas b=-η opote otan kaneis 
+    generate ta data esy prepei na exeis kanonia + kai meta paizei mono tou mesa sto paketo to - """
     logit_0 = a_0 - (trace['b_X_eta'] * X + trace['b_Z1_eta'] * Z1 + trace['b_Z2_eta'] * Z2)
     logit_1 = a_1 - (trace['b_X_eta'] * X + trace['b_Z1_eta'] * Z1 + trace['b_Z2_eta'] * Z2)
     prob_0 = expit(logit_0)
