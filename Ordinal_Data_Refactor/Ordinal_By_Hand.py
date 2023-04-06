@@ -1,26 +1,20 @@
+"""Swsth kai epiveveomeni ilopoihsh oti o By_hand upologismos tou Log_Likelihood vgazei to idio apotelesma me thn
+etoimh synartisi. Prosoxi edw einai h swsth ilopoihsh tou log_likelihood"""
 from scipy.special import expit
 import arviz as az
-import jax
-import matplotlib.pyplot as plt
 import numpy
 import numpyro.distributions as dist
-import pandas as pd
-from jax import numpy as np, random
+from jax import numpy as np
 import numpyro
-from numpyro import sample
 from numpyro.distributions import (Normal)
 from numpyro.infer import MCMC, NUTS, log_likelihood
-from numpyro import sample, handlers
-from jax.scipy.special import logsumexp
+from numpyro import sample
 from itertools import combinations
-# import jax.numpy as jnp
-from jax import random, vmap
+from jax import random
 import math
-from scipy.stats import norm
 import operator
 import pandas as pd
-import seaborn as sn
-import matplotlib.pyplot as plt
+
 
 assert numpyro.__version__.startswith("0.11.0")
 az.style.use("arviz-darkgrid")
@@ -92,7 +86,7 @@ def var_combinations(data):
 
 correct_MB = 0
 sample_size = 50
-
+traces = []
 for p in range(1):
     fb_trace = 0
     num_warmup, num_samples = 100, 100
@@ -112,32 +106,9 @@ for p in range(1):
 
         mcmc = MCMC(NUTS(model=Regression_cases), num_warmup=num_warmup, num_samples=num_samples)
         mcmc.run(random.PRNGKey(93), Y, X, Z1, Z2, reg_variables)
-        mcmc.print_summary()
+        # mcmc.print_summary()
         trace = mcmc.get_samples()
-
-        """By Hand tropos"""
-        P = 0
-        for dok in range(len(trace['beta_X'])):
-
-            a_0 = trace['cutpoints'][:, 0][dok]
-            a_1 = trace['cutpoints'][:, 1][dok]
-
-            logit_0 = a_0 - (trace['beta_X'][dok] * X + trace['beta_Z1'][dok] * Z1 + trace['beta_Z2'][dok] * Z2)
-            logit_1 = a_1 - (trace['beta_X'][dok] * X + trace['beta_Z1'][dok] * Z1 + trace['beta_Z2'][dok] * Z2)
-            prob_0 = expit(logit_0)
-            prob_1 = expit(logit_1) - prob_0
-            prob_2 = 1 - expit(logit_1)
-        # Calculate Likelihood
-
-            for i in range(len(prob_0)):
-                if Y[i] == 0:
-                    P = P + math.log(prob_0[i])
-                elif Y[i] == 1:
-                    P = P + math.log(prob_1[i])
-                else:
-                    P = P + math.log(prob_2[i])
-        print(P)
-        """Telos By hand tropou"""
+        traces.append(trace)
 
         Log_likelhood_dict = log_likelihood(Regression_cases, trace, Y, X, Z1, Z2, reg_variables)
         # print('Likelihood gia to b1', sum(Log_likelhood_dict['Y'][0]))
@@ -153,3 +124,111 @@ for p in range(1):
     if MB_Do == (('X', 'Z2')):
         correct_MB = correct_MB + 1
 print(correct_MB / 1)
+
+"""By Hand tropos"""
+#Gia (X,Z1,Z2)
+P = 0
+trace = traces[0]
+for dok in range(len(trace['beta_X'])):
+
+    a_0 = trace['cutpoints'][:, 0][dok]
+    a_1 = trace['cutpoints'][:, 1][dok]
+
+    logit_0 = a_0 - (trace['beta_X'][dok] * X + trace['beta_Z1'][dok] * Z1 + trace['beta_Z2'][dok] * Z2)
+    logit_1 = a_1 - (trace['beta_X'][dok] * X + trace['beta_Z1'][dok] * Z1 + trace['beta_Z2'][dok] * Z2)
+    prob_0 = expit(logit_0)
+    prob_1 = expit(logit_1) - prob_0
+    prob_2 = 1 - expit(logit_1)
+# Calculate Likelihood
+
+    for i in range(len(prob_0)):
+        if Y[i] == 0:
+            P = P + math.log(prob_0[i])
+        elif Y[i] == 1:
+            P = P + math.log(prob_1[i])
+        else:
+            P = P + math.log(prob_2[i])
+print(P)
+
+#Gia (X,Z1)
+P = 0
+trace = traces[1]
+#gia kathe bi apo to trace ypologise to log_likelihood gia ola ta data kai prosethese ola ta log_likelihood
+# ayta gia to marginal
+for dok in range(len(trace['beta_X'])):
+
+    a_0 = trace['cutpoints'][:, 0][dok]
+    a_1 = trace['cutpoints'][:, 1][dok]
+
+    logit_0 = a_0 - (trace['beta_X'][dok] * X + trace['beta_Z1'][dok] * Z1)
+    logit_1 = a_1 - (trace['beta_X'][dok] * X + trace['beta_Z1'][dok] * Z1)
+
+    prob_0 = expit(logit_0)
+    prob_1 = expit(logit_1) - prob_0
+    prob_2 = 1 - expit(logit_1)
+# Calculate Likelihood
+
+    for i in range(len(prob_0)):
+        if Y[i] == 0:
+            P = P + math.log(prob_0[i])
+        elif Y[i] == 1:
+            P = P + math.log(prob_1[i])
+        else:
+            P = P + math.log(prob_2[i])
+print(P)
+#Gia (X,Z1)
+P = 0
+trace = traces[2]
+#gia kathe bi apo to trace ypologise to log_likelihood gia ola ta data kai prosethese ola ta log_likelihood
+# ayta gia to marginal
+for dok in range(len(trace['beta_X'])):
+
+    a_0 = trace['cutpoints'][:, 0][dok]
+    a_1 = trace['cutpoints'][:, 1][dok]
+
+    logit_0 = a_0 - (trace['beta_X'][dok] * X + trace['beta_Z2'][dok] * Z2)
+    logit_1 = a_1 - (trace['beta_X'][dok] * X + trace['beta_Z2'][dok] * Z2)
+
+    prob_0 = expit(logit_0)
+    prob_1 = expit(logit_1) - prob_0
+    prob_2 = 1 - expit(logit_1)
+# Calculate Likelihood
+
+    for i in range(len(prob_0)):
+        if Y[i] == 0:
+            P = P + math.log(prob_0[i])
+        elif Y[i] == 1:
+            P = P + math.log(prob_1[i])
+        else:
+            P = P + math.log(prob_2[i])
+print(P)
+
+#Gia {X}
+P = 0
+trace = traces[3]
+#gia kathe bi apo to trace ypologise to log_likelihood gia ola ta data kai prosethese ola ta log_likelihood
+# ayta gia to marginal
+for dok in range(len(trace['beta_X'])):
+
+    a_0 = trace['cutpoints'][:, 0][dok]
+    a_1 = trace['cutpoints'][:, 1][dok]
+
+    logit_0 = a_0 - (trace['beta_X'][dok] * X)
+    logit_1 = a_1 - (trace['beta_X'][dok] * X)
+
+    prob_0 = expit(logit_0)
+    prob_1 = expit(logit_1) - prob_0
+    prob_2 = 1 - expit(logit_1)
+# Calculate Likelihood
+
+    for i in range(len(prob_0)):
+        if Y[i] == 0:
+            P = P + math.log(prob_0[i])
+        elif Y[i] == 1:
+            P = P + math.log(prob_1[i])
+        else:
+            P = P + math.log(prob_2[i])
+print(P)
+
+"""Telos By hand tropou"""
+
